@@ -1,0 +1,14 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: telemetry
+  namespace: clastix-system
+spec:
+  bootstrap:
+    initdb:
+      database: telemetry
+  enableSuperuserAccess: true
+  instances: 1
+  storage:
+    size: 16Gi
+    storageClass: cinder-csi

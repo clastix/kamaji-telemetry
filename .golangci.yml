@@ -1,0 +1,32 @@
+linters-settings:
+  gci:
+    sections:
+      - standard
+      - default
+      - prefix(github.com/clastix/kamaji-telemetry)
+  goheader:
+    template: |-
+      Copyright 2024 Clastix Labs
+      SPDX-License-Identifier: Apache-2.0
+
+run:
+  timeout: 5m
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+linters:
+  disable:
+    - execinquery
+    - varnamelen
+    - tagliatelle
+    - gomnd
+    - depguard
+    - exhaustruct
+    - lll
+    - mnd
+    - nonamedreturns
+    - ireturn
+    - funlen
+  enable-all: true
