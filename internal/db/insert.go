@@ -4,11 +4,14 @@
 package db
 
 import (
+	"context"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pkg/errors"
 
 	kamajictx "github.com/clastix/kamaji-telemetry/internal/ctx"
 )
@@ -22,38 +25,68 @@ ON CONFLICT (uuid) DO UPDATE
 SET payload = $3, created_at = now()`
 )
 
-func Create(conn *pgx.Conn, payload []byte, logger logr.Logger) {
-	ctx, cancel := kamajictx.GracefulTimeout(insertTimeout)
-	defer cancel()
+func Create(conn *pgxpool.Pool, payload []byte, logger logr.Logger) {
+	err := execWithTransaction(conn, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, insertStatement, uuid.New().String(), "create", payload)
 
-	if _, err := conn.Exec(ctx, insertStatement, uuid.New().String(), "create", payload); err != nil {
+		return err //nolint:wrapcheck
+	})
+	if err != nil {
 		logger.Error(err, "failed to insert create event")
 	}
 }
 
-func Update(conn *pgx.Conn, payload []byte, logger logr.Logger) {
-	ctx, cancel := kamajictx.GracefulTimeout(insertTimeout)
-	defer cancel()
+func Update(conn *pgxpool.Pool, payload []byte, logger logr.Logger) {
+	err := execWithTransaction(conn, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, insertStatement, uuid.New().String(), "update", payload)
 
-	if _, err := conn.Exec(ctx, insertStatement, uuid.New().String(), "update", payload); err != nil {
+		return err //nolint:wrapcheck
+	})
+	if err != nil {
 		logger.Error(err, "failed to insert update event")
 	}
 }
 
-func Delete(conn *pgx.Conn, payload []byte, logger logr.Logger) {
-	ctx, cancel := kamajictx.GracefulTimeout(insertTimeout)
-	defer cancel()
+func Delete(conn *pgxpool.Pool, payload []byte, logger logr.Logger) {
+	err := execWithTransaction(conn, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, insertStatement, uuid.New().String(), "delete", payload)
 
-	if _, err := conn.Exec(ctx, insertStatement, uuid.New().String(), "delete", payload); err != nil {
+		return err //nolint:wrapcheck
+	})
+	if err != nil {
 		logger.Error(err, "failed to insert delete event")
 	}
 }
 
-func Stats(conn *pgx.Conn, payload []byte, logger logr.Logger, uuid string) {
+func Stats(conn *pgxpool.Pool, payload []byte, logger logr.Logger, uuid string) {
+	err := execWithTransaction(conn, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, createOrUpdateStatement, uuid, "stats", payload)
+
+		return err //nolint:wrapcheck
+	})
+	if err != nil {
+		logger.Error(err, "failed to insert stats event")
+	}
+}
+
+func execWithTransaction(pool *pgxpool.Pool, fn func(context.Context, pgx.Tx) error) error {
 	ctx, cancel := kamajictx.GracefulTimeout(insertTimeout)
 	defer cancel()
 
-	if _, err := conn.Exec(ctx, createOrUpdateStatement, uuid, "stats", payload); err != nil {
-		logger.Error(err, "failed to insert delete event")
+	tx, txErr := pool.Begin(ctx)
+	if txErr != nil {
+		return errors.Wrap(txErr, "failed to begin transaction for delete")
 	}
+
+	if err := fn(ctx, tx); err != nil {
+		_ = tx.Rollback(context.Background())
+
+		return err
+	}
+
+	if err := tx.Commit(context.Background()); err != nil {
+		return errors.Wrap(err, "failed to commit transaction")
+	}
+
+	return nil
 }

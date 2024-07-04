@@ -15,7 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/pkg/errors"
 
@@ -26,15 +26,15 @@ import (
 
 type WebServer struct {
 	json   jsoniter.API
-	conn   *pgx.Conn
 	logger logr.Logger
+	pool   *pgxpool.Pool
 }
 
-func New(ctx context.Context, logger logr.Logger, conn *pgx.Conn, port int) error {
+func New(ctx context.Context, logger logr.Logger, pool *pgxpool.Pool, port int) error {
 	ws := WebServer{
 		json:   jsoniter.ConfigCompatibleWithStandardLibrary,
 		logger: logger,
-		conn:   conn,
+		pool:   pool,
 	}
 
 	r := mux.NewRouter()
@@ -105,7 +105,9 @@ func (w *WebServer) recordCreate(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 
-	go db.Create(w.conn, data, logger) //nolint:contextcheck
+	logger.Info(string(data))
+
+	go db.Create(w.pool, data, logger) //nolint:contextcheck
 
 	writer.WriteHeader(http.StatusOK)
 }
@@ -130,6 +132,8 @@ func (w *WebServer) recordUpdate(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 
+	logger.Info(string(data))
+
 	if payload.KamajiVersion == "" || payload.KubernetesVersion == "" || payload.OldTenantVersion == "" || payload.NewTenantVersion == "" {
 		logger.Info("request body does not contain required fields")
 		writer.WriteHeader(http.StatusBadRequest)
@@ -137,7 +141,7 @@ func (w *WebServer) recordUpdate(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 
-	go db.Update(w.conn, data, logger) //nolint:contextcheck
+	go db.Update(w.pool, data, logger) //nolint:contextcheck
 
 	writer.WriteHeader(http.StatusOK)
 }
@@ -169,7 +173,9 @@ func (w *WebServer) recordDelete(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 
-	go db.Delete(w.conn, data, logger) //nolint:contextcheck
+	logger.Info(string(data))
+
+	go db.Delete(w.pool, data, logger) //nolint:contextcheck
 
 	writer.WriteHeader(http.StatusOK)
 }
@@ -201,7 +207,9 @@ func (w *WebServer) recordStats(writer http.ResponseWriter, request *http.Reques
 		return
 	}
 
-	go db.Stats(w.conn, data, logger, payload.UUID) //nolint:contextcheck
+	logger.Info(string(data))
+
+	go db.Stats(w.pool, data, logger, payload.UUID) //nolint:contextcheck
 
 	writer.WriteHeader(http.StatusOK)
 }

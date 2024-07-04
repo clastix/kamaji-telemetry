@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -26,7 +26,7 @@ func main() {
 	zapOpts.BindFlags(zapFs)
 	logger := zap.New(zap.UseFlagOptions(zapOpts))
 
-	var conn *pgx.Conn
+	var pool *pgxpool.Pool
 
 	cmd := &cobra.Command{
 		Use:   "kamaji-telemetry",
@@ -36,34 +36,35 @@ func main() {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		PreRunE: func(cmd *cobra.Command, _ []string) (err error) {
-			if conn, err = pgx.Connect(cmd.Context(), args.PsqlConnectionString); err != nil {
-				return errors.Wrap(err, "unable to connect to database")
+			confConfig, confErr := pgxpool.ParseConfig(args.PsqlConnectionString)
+			if confErr != nil {
+				return errors.Wrap(err, "unable to parse connection string")
 			}
 
-			if initErr := db.CreateTableIfNotExists(cmd.Context(), conn); initErr != nil {
-				return errors.Wrap(err, "unable to initialize table")
+			pool, err = pgxpool.NewWithConfig(cmd.Context(), confConfig)
+			if err != nil {
+				return errors.Wrap(err, "unable to create the pool")
 			}
 
-			connCtx, cancel := ctx.GracefulTimeout(5 * time.Second)
+			pingCtx, cancel := ctx.GracefulTimeout(5 * time.Second)
 			defer cancel()
 
-			if err = conn.Ping(connCtx); err != nil {
+			if err = pool.Ping(pingCtx); err != nil {
 				return errors.Wrap(err, "unable to ping database")
+			}
+
+			if initErr := db.CreateTableIfNotExists(cmd.Context(), pool); initErr != nil {
+				return errors.Wrap(err, "unable to initialize table")
 			}
 
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := webserver.New(cmd.Context(), logger, conn, args.Port); err != nil {
+			if err := webserver.New(cmd.Context(), logger, pool, args.Port); err != nil {
 				return errors.Wrap(err, "failed to start server")
 			}
 
-			connCtx, cancel := ctx.GracefulTimeout(5 * time.Second)
-			defer cancel()
-
-			if err := conn.Close(connCtx); err != nil {
-				return errors.Wrap(err, "failed to close postgresql connection")
-			}
+			pool.Close()
 
 			return nil
 		},

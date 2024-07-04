@@ -6,7 +6,7 @@ package db
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pkg/errors"
 )
 
@@ -20,9 +20,23 @@ const (
 )`
 )
 
-func CreateTableIfNotExists(ctx context.Context, c *pgx.Conn) error {
-	if _, err := c.Exec(ctx, CreateStatement); err != nil {
-		return errors.Wrap(err, "cannot create or update required table")
+func CreateTableIfNotExists(ctx context.Context, p *pgxpool.Pool) error {
+	err := p.AcquireFunc(ctx, func(conn *pgxpool.Conn) error {
+		tx, txErr := conn.Begin(ctx)
+		if txErr != nil {
+			return errors.Wrap(txErr, "transaction failed")
+		}
+
+		if _, err := tx.Exec(ctx, CreateStatement); err != nil {
+			_ = tx.Rollback(ctx)
+
+			return errors.Wrap(err, "cannot create or update required table")
+		}
+
+		return tx.Commit(ctx)
+	})
+	if err != nil {
+		return errors.Wrap(err, "cannot create table")
 	}
 
 	return nil
